@@ -1,0 +1,100 @@
+---
+title: "R Notebook"
+author: "Ajinkya Sheth"
+date: "Jan 20, 2019"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+    smart: no
+---
+
+
+
+```{r include = FALSE}
+setwd("~/imt573_work/lab01")
+seatbelts <- read.csv("seatbelts.csv")
+```
+
+## Header of Seatbelts
+```{r}
+head(seatbelts)
+```
+
+## Seatbelts metadata
+```{r echo=FALSE, eval=TRUE}
+paste("Seatbelts rows and columns")
+dim(seatbelts)
+paste("Seatbelts column names")
+colnames(seatbelts)
+paste("Seatbelts class type")
+class(seatbelts)
+```
+## Seatbelts Summary
+```{r}
+summary(seatbelts)
+```
+
+## Means
+```{r echo=FALSE, eval=TRUE}
+paste("Mean of driver's killed")
+mean(seatbelts[,"DriversKilled"])
+paste("Mean of driver's killed between years 1969 and 1970")
+mean(seatbelts[ seatbelts[,"year"]>=1969 & seatbelts[,"year"]<=1970 , "DriversKilled"])
+```
+```{r echo=FALSE, eval=TRUE}
+paste("Mean by years")
+by(seatbelts[, "DriversKilled"], seatbelts[,"year"], mean)
+```
+
+## Plot of drivers and distance 
+```{r}
+plot(seatbelts[,"kms"], seatbelts[,"drivers"])
+```
+
+```{r echo=FALSE, eval=TRUE}
+paste("Mean of drivers killed in 1970")
+mean(seatbelts[ seatbelts[,"year"]==1970, "DriversKilled"])
+# 133.1667
+paste("Mean of drivers killed in 1978")
+mean(seatbelts[ seatbelts[,"year"]==1978, "DriversKilled"])
+# 127.0833
+paste("Mean of rear passengers killed in 1972")
+mean(seatbelts[ seatbelts[,"year"]==1972, "rear"])
+# 439.4167
+paste("Mean of rear passengers killed in 1980")
+mean(seatbelts[ seatbelts[,"year"]==1980, "rear"])
+# 368.4167
+```
+
+## More plots
+```{r}
+plot(seatbelts[,"kms"], seatbelts[,"DriversKilled"])
+plot(seatbelts[,"PetrolPrice"], seatbelts[,"drivers"])
+
+plot(seatbelts[,"year"], seatbelts[,"drivers"])
+```
+
+## Find the date where seatbelt law was changed
+```{r}
+max(seatbelts[Seatbelts[,"law"]==0 ,"year.month"])
+min(seatbelts[Seatbelts[,"law"]==1 ,"year.month"])
+
+```
+
+## Plot of drivers killed against time along with ab line
+```{r}
+plot(seatbelts[,"year.month"],seatbelts[,"DriversKilled"], type='l')
+abline(v="1983.083")
+```
+
+
+## Plot of drivers killed against time along with ab line (after neutralizing seasonal variations)
+```{r}
+#plot(unique(seatbelts[,"year"]),mean(seatbelts[,"DriversKilled"]))
+
+aggByYear <- aggregate(seatbelts$DriversKilled, by=list(seatbelts$year), FUN=mean)
+plot(aggByYear$Group.1,aggByYear$x,type='l')
+abline(v="1983")
+```
+
