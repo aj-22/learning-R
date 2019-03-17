@@ -1,0 +1,308 @@
+---
+title: "Alcohol Consumption"
+author: "Ajinkya Sheth"
+date: "March 9, 2019"
+output: 
+  html_document:
+    smart: no
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+```
+
+```{r}
+alcohol = read.csv("./Alcohol Use_1516.csv", header=TRUE)
+demographic = read.csv("./Demographic_1516.csv", header=TRUE)
+depression = read.csv("./Depression_1516.csv", header=TRUE)
+drug = read.csv("./Drug Use_1516.csv", header=TRUE)
+
+```
+## Variables considered for this analysis - Alcohol table
+ALQ120Q - How often drink alcohol over past 12 mos
+ALQ120U - # days drink alcohol per wk, mo, yr
+ALQ130 - Avg # alcoholic drinks/day - past 12 mos
+ALQ141Q - # days have 4/5 drinks - past 12 mos
+ALQ141U - # days per week, month, year?
+ALQ151 - Ever have 4/5 or more drinks every day?
+ALQ160 - # days have 4/5 or more drinks in 2 hrs
+***
+
+```{r}
+
+alcohol_clean <- alcohol %>%
+  select(SEQN,ALQ120Q,ALQ120U, ALQ130, ALQ141Q, ALQ141U, ALQ151, ALQ160) %>%
+  na.omit(cols=seq_along(ALQ120Q, ALQ120U, ALQ130, ALQ141Q, ALQ141U, ALQ151, ALQ160)) %>%
+  as.data.frame()
+
+#write.table(alcohol_clean, "./alchohol_clean.csv", sep=",")
+  
+```
+
+
+Demographic:
+RIAGENDR - Gender
+RIDAGEYR - Age in years at screening
+DMQMILIZ - Served active duty in US Armed Forces
+DMDCITZN - Citizenship status
+DMDEDUC3 - Education level - Children/Youth 6-19
+INDFMIN2 - Annual family income
+INDFMPIR - Ratio of family income to poverty
+DMDEDUC2 - Education level - Adults 20+
+DMDMARTL - Marital status
+***
+
+```{r}
+
+demographc_clean <- demographic %>%
+  select(SEQN, RIAGENDR, RIDAGEYR, DMQMILIZ, DMDCITZN, DMDEDUC3, INDFMIN2, INDFMPIR, DMDEDUC2, DMDMARTL) %>%
+  as.data.frame()
+```
+
+Depression:
+DPQ010 - Have little interest in doing things
+DPQ020 - Feeling down, depressed, or hopeless
+DPQ030 - Trouble sleeping or sleeping too much
+DPQ040 - Feeling tired or having little energy
+DPQ050 - Poor appetite or overeating
+DPQ060 - Feeling bad about yourself
+DPQ070 - Trouble concentrating on things
+DPQ080 - Moving or speaking slowly or too fast
+DPQ090 - Thought you would be better off dead
+DPQ100 - Difficulty these problems have caused
+***
+
+## Quantify depression 
+We quantify depression as a sum of all the variables in the depression table except DPQ100 
+Since DPQ100 by nature and by definition is a multiplicative variable
+
+
+```{r}
+depression_clean <- depression %>%
+  na.omit(seq_along(DPQ010, DPQ020, DPQ030, DPQ040, DPQ050, DPQ060, DPQ070, DPQ080, DPQ090, DPQ100)) %>%
+  as.data.frame()
+
+cols_to_mutate <- c("DPQ010", "DPQ020", "DPQ030", "DPQ040", "DPQ050", "DPQ060", "DPQ070", "DPQ080", "DPQ090")
+
+depression_clean %>% 
+  select(DPQ010:DPQ100) %>% 
+    mutate_at(cols_to_mutate, function(x) {
+    case_when(
+      x == 1 ~ 1,
+      x == 2 ~ 2,
+      x == 3 ~ 3,
+      x == 0 ~ 0,
+      T ~ as.numeric(NA)
+    )
+  }) %>%
+  rowSums(na.rm=TRUE) -> depression_clean$DepressionScore 
+
+
+# We scraped out the multiplicative variable in our final analysis
+normalizeDepressionScore <- function(score, factor) {
+  case_when(
+      factor == 0 ~ 1*score,
+      factor == 1 ~ 2*score,
+      factor == 2 ~ 4*score,
+      factor == 3 ~ 8*score,
+      T ~ as.numeric(NA)
+  )
+}
+
+#\depression_clean$DepressionScore <- normalizeDepressionScore(depression_clean$DepressionScore,                                                             depression_clean$DPQ100)
+  
+```
+
+## Join alcohol, demographic and drepression table for univariate analysis
+According to CDC definitions, excess consumption of alcohol is defined differently for males and females.
+Hence, we need gender information to infer relationship between alcoholism and depression precisely.
+To keep things simple, we are joining demographic and depression table to alcohol table via inner join.
+The reason of choosing inner join is because:
+We would need all the information to conduct further analysis
+
+```{r}
+depression_trunc <- depression_clean %>% select(SEQN,DepressionScore,DPQ090) %>% as.data.frame()
+
+AlcoholAnalysis <- alcohol_clean %>% 
+                    inner_join(depression_trunc,
+                      by="SEQN",
+                      copy=False) %>%
+                    inner_join(demographc_clean,
+                      by="SEQN",
+                      copy=False)
+```
+
+
+## Quantify alcoholism
+### Alcohol in the USA
+In the United States, a standard drink contains 0.6 ounces (14.0 grams or 1.2 tablespoons) of pure alcohol. Generally, this amount of pure alcohol is found in
+12-ounces of beer (5% alcohol content).
+8-ounces of malt liquor (7% alcohol content).
+5-ounces of wine (12% alcohol content).
+1.5-ounces of 80-proof (40% alcohol content) distilled spirits or liquor (e.g., gin, rum, vodka, whiskey).4
+(https://www.cdc.gov/alcohol/fact-sheets/alcohol-use.htm)
+
+### 1. Drinkers
+**Definition of Moderate Drinking:**
+The Dietary Guidelines for Americans defines moderate drinking as up to 1 drink per day for women and up to 2 drinks per day for men. In addition, the Dietary Guidelines do not recommend that individuals who do not drink alcohol start drinking for any reason.
+(https://www.cdc.gov/alcohol/fact-sheets/alcohol-use.htm)
+**Scheme of quantification:**
+Total Alcohol Consumption (TotalConsumption) = Drinks/Day * Drinking days
+TotalConsumption = Drinking Days[function(ALQ120Q, ALQ120U)] * Avg drinks/day [ALQ130]
+
+
+### 2. Binge Drinkers 
+**Definition of Binge Drinking:**
+The National Institute on Alcohol Abuse and AlcoholismExternal defines binge drinking as a pattern of drinking that brings a person’s blood alcohol concentration (BAC) to 0.08 grams percent or above. This typically happens when men consume 5 or more drinks or women consume 4 or more drinks in about 2 hours.
+(https://www.cdc.gov/alcohol/fact-sheets/binge-drinking.htm)
+In our analysis, we will consider consumption in throughout the day as well, 
+**Scheme of quantification:**
+Degree of binge drinking= Number of bringe drinking sessions*Alcohol consumed in bringe drinking sessions
+
+
+### 3. Heavy Drinkers:
+**Definition of Heavy Drinking:**
+Heavy drinking is defined as consuming
+For women, 8 or more drinks per week.
+For men, 15 or more drinks per week.
+(https://www.cdc.gov/alcohol/fact-sheets/alcohol-use.htm)
+**Scheme of quantification:**
+Degree of heavy drinking= Number of heavy drinking sessions * alcohol consumed in heavy drinking sessions
+
+### 4. Recent Excess Consumption:
+We consider the field "ALQ160" to establish this metric. 
+
+*Note: Occasional drinkers or drinkers who do not fit into the above category are not conisdered in this analysis*
+*Heavy drinkers are out of scope as well*
+  
+```{r}
+
+getTotalConsumption <- function(freq, unit, avg_drinksByDays){
+      case_when(
+          freq<375 | unit == 1 ~ freq*7*12*avg_drinksByDays,
+          freq<375 | unit == 2 ~ freq*12*avg_drinksByDays,
+          freq<375 | unit == 3 ~ freq*avg_drinksByDays,
+          freq<375 | unit == 7 ~ as.numeric(NA),
+          freq<375 | unit == 9 ~ as.numeric(NA),
+          TRUE ~ as.numeric(NA)
+          )
+ }
+ 
+AlcoholAnalysis$TotalConsumption <- mapply(getTotalConsumption,
+                                          as.numeric(AlcoholAnalysis$ALQ120Q), 
+                                          as.numeric(AlcoholAnalysis$ALQ120U), 
+                                          as.numeric(AlcoholAnalysis$ALQ130))
+
+bingeNumber <- function(gender) {
+  case_when (
+    gender == 1 ~ 5,
+    gender == 2 ~ 4,
+    TRUE ~ as.numeric(NA)
+  )
+}
+getBingeConsumption <- function(freq, unit, bingenum){
+      case_when(
+          freq<375 | unit == 1 ~ freq*7*12*bingenum,
+          freq<375 | unit == 2 ~ freq*12*bingenum,
+          freq<375 | unit == 3 ~ freq*bingenum,
+          freq<375 | unit == 7 ~ as.numeric(NA),
+          freq<375 | unit == 9 ~ as.numeric(NA),
+          TRUE ~ as.numeric(NA)
+          )
+}
+AlcoholAnalysis$BingeConsumption <- mapply(getBingeConsumption,
+                                           AlcoholAnalysis$ALQ141Q,
+                                           AlcoholAnalysis$ALQ141U,
+                                           bingeNumber(AlcoholAnalysis$RIAGENDR))
+
+getRecentAddiction <- function(freq, bingenum) {
+  case_when(
+    freq <= 19 ~ freq*bingenum,
+    freq == 20 ~ 20*bingenum,
+    TRUE ~ as.numeric(NA)
+  )
+}
+
+AlcoholAnalysis$RecentAddiction <- mapply(getRecentAddiction,
+                                           AlcoholAnalysis$ALQ160,
+                                           bingeNumber(AlcoholAnalysis$RIAGENDR))
+
+
+```
+
+
+### Drop unncessary alcohol columns
+
+```{r}
+
+AlcoholAnalysis <- within(AlcoholAnalysis, rm(ALQ120Q,ALQ120U,ALQ130,ALQ141Q,ALQ141U,ALQ151,ALQ160))
+```
+```{r}
+write.csv(AlcoholAnalysis, file = "AlcoholAnalysis.csv")
+```
+
+### Univariate Linear Regression
+Depression Score ~ Total Alcohol Consumption
+```{r}
+mod <- lm(AlcoholAnalysis$DepressionScore ~ AlcoholAnalysis$TotalConsumption, data = AlcoholAnalysis)
+#mod <- glm(DPQ090 ~ TotalConsumption,  data = AlcoholAnalysis ) #, family="binomial")
+summary(mod)
+```
+```{r}
+plot(mod$model$`AlcoholAnalysis$TotalConsumption`,mod$model$`AlcoholAnalysis$DepressionScore`, xlim=c(0,8000)) # the limit can be set between (5000 and 20000)
+abline(mod)
+
+```
+```{r}
+modBinge <- lm(AlcoholAnalysis$DepressionScore ~ AlcoholAnalysis$BingeConsumption, data = AlcoholAnalysis)
+summary(modBinge)
+```
+```{r}
+plot(modBinge$model$`AlcoholAnalysis$BingeConsumption`,modBinge$model$`AlcoholAnalysis$DepressionScore`, xlim=c(0,8000)) # the limit can be set between (5000 and 20000)
+abline(modBinge)
+
+```
+```{r}
+modRecent <- lm(AlcoholAnalysis$DepressionScore ~ AlcoholAnalysis$RecentAddiction, data = AlcoholAnalysis)
+summary(modRecent)
+```
+
+```{r}
+plot(modRecent$model$`AlcoholAnalysis$RecentAddiction`,modRecent$model$`AlcoholAnalysis$DepressionScore`, xlim=c(0,100)) # the limit can be set between (5000 and 20000)
+abline(modRecent)
+
+resrd <- resid(modRecent)
+hist(resrd)
+
+```
+Correlation of Depression score against demographics - age, gender, income
+```{r}
+#hist(AlcoholAnalysis$DepressionScore)
+DepressionDemographics <- demographc_clean %>% 
+                    inner_join(depression_trunc,
+                      by="SEQN",
+                      copy=False)
+#head(DepressionDemographics)
+modDepDemo <- lm(DepressionScore ~ INDFMIN2, data = DepressionDemographics)
+plot(modDepDemo$model$INDFMIN2,modDepDemo$model$DepressionScore, xlim=c(0,20))
+abline(modDepDemo)
+summary(modDepDemo)
+```
+
+```{r}
+ServerelyDepressed <- AlcoholAnalysis %>% filter(TotalConsumption >=1500) %>% filter(DepressionScore >= 5)
+AlcoholAnalysisFiltered <- AlcoholAnalysis %>% inner_join(ServerelyDepressed)
+
+modFiltered <- lm(AlcoholAnalysisFiltered$DepressionScore ~ AlcoholAnalysisFiltered$TotalConsumption, data = AlcoholAnalysis)
+#mod <- glm(DPQ090 ~ TotalConsumption,  data = AlcoholAnalysis ) #, family="binomial")
+summary(modFiltered)
+```
+
+```{r}
+plot(modFiltered$model$`AlcoholAnalysisFiltered$TotalConsumption`,modFiltered$model$`AlcoholAnalysisFiltered$DepressionScore`, ylim=c(0,20),xlim=c(0,10000)) # the limit can be set between (5000 and 20000)
+abline(modFiltered)
+```
+
+
