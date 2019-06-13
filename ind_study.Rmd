@@ -44,7 +44,7 @@ library(transformr)
 
 library(mapproj)
 
-GOOGLEAPI <- 'AIzaSyBB4L0iiLI6vTM3Tg-GbfcFo9lNarNRYU8'
+GOOGLEAPI <- '#####'
 SIERRALEONE_SHP <- read_sf('./SLE_adm3.shp')
 ```
 
